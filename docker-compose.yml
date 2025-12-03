@@ -53,15 +53,13 @@ services:
       dockerfile: Dockerfile
     container_name: ai-assistant-backend
     restart: unless-stopped
-    ports:
-      - "5001:5001"
+    network_mode: host
     environment:
-      - REDIS_HOST=redis
+      - REDIS_HOST=127.0.0.1
       - REDIS_PORT=6379
       - REDIS_DB=0
-      # Use system Ollama on host via Docker bridge gateway IP
-      # This gets set by deployment script, but defaults to bridge gateway
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://172.17.0.1:11434}
+      # Use system Ollama on localhost (host networking mode)
+      - OLLAMA_BASE_URL=http://127.0.0.1:11434
       - OLLAMA_MODEL=phi3:mini
       - OLLAMA_TIMEOUT=120
       - SESSION_TTL_SECONDS=600
@@ -72,8 +70,6 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
       # Use Python stdlib only (no external dependencies)
       test: ["CMD-SHELL", "python -c 'import http.client,sys; conn=http.client.HTTPConnection(\"localhost\",5001); conn.request(\"GET\",\"/api/health\"); resp=conn.getresponse(); sys.exit(0 if resp.status==200 else 1)'"]
@@ -81,8 +77,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    networks:
-      - ai-assistant-network
 
   # React Frontend
   frontend:
