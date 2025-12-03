@@ -138,7 +138,7 @@ jobs:
           host: "72.60.42.121"
           username: "root"
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT || 22 }}
+          port: ${{ 22 }}
           script: |
             set -e
             PROJECT_DIR=${{ secrets.PROJECT_PATH || '/home/root/ai-assistant' }}
