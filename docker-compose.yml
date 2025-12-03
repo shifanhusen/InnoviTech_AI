@@ -101,7 +101,7 @@ services:
     networks:
       - ai-assistant-network
 
-  # Nginx Reverse Proxy
+  # Nginx Reverse 
   nginx:
     image: nginx:alpine
     container_name: ai-assistant-nginx
