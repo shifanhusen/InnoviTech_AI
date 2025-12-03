@@ -1,0 +1,146 @@
+"""
+Chat API endpoints for AI assistant interaction.
+"""
+from fastapi import APIRouter, HTTPException, Depends
+from redis import Redis
+from app.models.request_models import (
+    ChatRequest, ChatResponse,
+    ResetRequest, ResetResponse,
+    SessionHistoryResponse
+)
+from app.services.memory_service import MemoryService
+from app.services.ollama_service import OllamaService
+from app.services.scrape_service import ScrapeService
+from app.utils.prompt_builder import build_prompt
+from app.core.redis_client import get_redis
+from app.utils.logger import logger
+
+router = APIRouter(prefix="/api/llm", tags=["Chat"])
+
+# Initialize services
+ollama_service = OllamaService()
+scrape_service = ScrapeService()
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest, redis_client: Redis = Depends(get_redis)):
+    """
+    Main chat endpoint for AI assistant interaction.
+    
+    Args:
+        request: Chat request containing session_id, message, and optional scraping parameters
+        redis_client: Redis client dependency
+    
+    Returns:
+        AI assistant reply with session expiration status
+    """
+    try:
+        # Initialize memory service
+        memory = MemoryService(redis_client)
+        
+        # Check if session existed before
+        session_existed = memory.session_exists(request.session_id)
+        
+        # Get conversation history
+        history = memory.get_history(request.session_id)
+        
+        # Optional web scraping
+        scraped_text = None
+        if request.use_scrape and request.scrape_url:
+            logger.info(f"Scraping requested for URL: {request.scrape_url}")
+            scraped_text = scrape_service.scrape_website(request.scrape_url)
+        
+        # Build prompt
+        prompt = build_prompt(
+            history=history,
+            user_message=request.message,
+            scraped_text=scraped_text
+        )
+        
+        # Call Ollama
+        try:
+            assistant_reply = ollama_service.call_ollama(prompt)
+        except Exception as e:
+            logger.error(f"Ollama service error: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"AI service unavailable: {str(e)}"
+            )
+        
+        # Store messages in memory
+        memory.append_message(request.session_id, "user", request.message)
+        memory.append_message(request.session_id, "assistant", assistant_reply)
+        
+        # Determine if session expired
+        session_expired = not session_existed and len(history) == 0
+        
+        return ChatResponse(
+            reply=assistant_reply,
+            session_expired=session_expired
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in chat endpoint: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error occurred"
+        )
+
+
+@router.post("/reset", response_model=ResetResponse)
+async def reset_session(request: ResetRequest, redis_client: Redis = Depends(get_redis)):
+    """
+    Reset conversation history for a session.
+    
+    Args:
+        request: Reset request containing session_id
+        redis_client: Redis client dependency
+    
+    Returns:
+        Confirmation message
+    """
+    try:
+        memory = MemoryService(redis_client)
+        memory.reset_session(request.session_id)
+        
+        return ResetResponse(
+            message="Session reset successfully",
+            session_id=request.session_id
+        )
+    except Exception as e:
+        logger.error(f"Error resetting session: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to reset session"
+        )
+
+
+@router.get("/session/{session_id}", response_model=SessionHistoryResponse)
+async def get_session_history(session_id: str, redis_client: Redis = Depends(get_redis)):
+    """
+    Retrieve conversation history for debugging purposes.
+    
+    Args:
+        session_id: Session identifier
+        redis_client: Redis client dependency
+    
+    Returns:
+        Session history with message count
+    """
+    try:
+        memory = MemoryService(redis_client)
+        history = memory.get_history(session_id)
+        
+        return SessionHistoryResponse(
+            session_id=session_id,
+            history=history,
+            message_count=len(history)
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving session history: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve session history"
+        )

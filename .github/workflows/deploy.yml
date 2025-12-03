@@ -1,0 +1,103 @@
+name: Deploy to Ubuntu Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Ubuntu Server via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            echo "🚀 Starting deployment..."
+            
+            # Navigate to project directory
+            cd ${{ secrets.PROJECT_PATH || '/home/$USER/ai-assistant' }}
+            
+            # Pull latest code
+            echo "📥 Pulling latest code from GitHub..."
+            git fetch origin
+            git reset --hard origin/main
+            
+            # Stop existing containers
+            echo "🛑 Stopping existing containers..."
+            docker compose down
+            
+            # Pull latest images (if using pre-built images)
+            # echo "📦 Pulling latest Docker images..."
+            # docker compose pull
+            
+            # Rebuild images with latest code
+            echo "🔨 Building Docker images..."
+            docker compose build --no-cache
+            
+            # Start services
+            echo "▶️  Starting services..."
+            docker compose up -d
+            
+            # Wait for services to be healthy
+            echo "⏳ Waiting for services to start..."
+            sleep 10
+            
+            # Check if LLaMA model exists, if not pull it
+            echo "🤖 Checking LLaMA model..."
+            if ! docker exec ai-assistant-ollama ollama list | grep -q "llama3.1:8b"; then
+              echo "📥 Pulling LLaMA 3.1 8B model (this may take a while)..."
+              docker exec ai-assistant-ollama ollama pull llama3.1:8b
+            else
+              echo "✅ LLaMA model already exists"
+            fi
+            
+            # Health check
+            echo "🏥 Running health checks..."
+            sleep 5
+            
+            # Check backend health
+            if curl -f http://localhost:5001/api/health > /dev/null 2>&1; then
+              echo "✅ Backend is healthy"
+            else
+              echo "❌ Backend health check failed"
+              exit 1
+            fi
+            
+            # Check if nginx is responding
+            if curl -f http://localhost/api/health > /dev/null 2>&1; then
+              echo "✅ Nginx is healthy"
+            else
+              echo "❌ Nginx health check failed"
+              exit 1
+            fi
+            
+            # Clean up old images
+            echo "🧹 Cleaning up old Docker images..."
+            docker image prune -f
+            
+            # Show running containers
+            echo "📊 Currently running containers:"
+            docker compose ps
+            
+            echo "✅ Deployment completed successfully!"
+            echo "🌐 Application is now live!"
+
+      - name: Deployment Status Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment to production server succeeded!"
+          else
+            echo "❌ Deployment to production server failed!"
+          fi
