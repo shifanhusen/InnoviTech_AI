@@ -1,24 +1,21 @@
 """
 Web search service using DuckDuckGo for searching the internet.
 """
-import requests
+from duckduckgo_search import DDGS
 from typing import List, Dict
 from app.utils.logger import logger
+import traceback
 
 
 class SearchService:
     """Handles web search functionality using DuckDuckGo."""
     
     def __init__(self):
-        self.base_url = "https://html.duckduckgo.com/html/"
-        self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                          "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        self.ddgs = DDGS()
     
     def search(self, query: str, num_results: int = 5) -> List[Dict[str, str]]:
         """
-        Search DuckDuckGo and return top results.
+        Search DuckDuckGo and return top results with real-time data.
         
         Args:
             query: Search query
@@ -28,69 +25,32 @@ class SearchService:
             List of dicts with 'title', 'url', and 'snippet'
         """
         try:
-            logger.info(f"Searching DuckDuckGo for: {query}")
+            logger.info(f"🔍 Searching DuckDuckGo for: {query}")
             
-            # DuckDuckGo lite search
-            params = {"q": query}
-            response = requests.post(
-                self.base_url,
-                data=params,
-                headers=self.headers,
-                timeout=10
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"Search failed with status {response.status_code}")
-                return []
-            
-            # Parse results using simple text parsing
+            # Use DuckDuckGo search library for real-time results
             results = []
-            html = response.text
             
-            # Extract result blocks (simple parsing)
-            result_blocks = html.split('class="result__a"')
+            # Text search for web results
+            search_results = self.ddgs.text(query, max_results=num_results)
             
-            for block in result_blocks[1:num_results+1]:  # Skip first split
-                try:
-                    # Extract URL
-                    url_start = block.find('href="') + 6
-                    url_end = block.find('"', url_start)
-                    url = block[url_start:url_end]
-                    
-                    # Extract title
-                    title_start = block.find('>') + 1
-                    title_end = block.find('</a>')
-                    title = block[title_start:title_end].strip()
-                    
-                    # Extract snippet (next section)
-                    snippet_start = block.find('class="result__snippet"')
-                    if snippet_start > 0:
-                        snippet_start = block.find('>', snippet_start) + 1
-                        snippet_end = block.find('</a>', snippet_start)
-                        snippet = block[snippet_start:snippet_end].strip()
-                        # Clean HTML tags
-                        snippet = snippet.replace('<b>', '').replace('</b>', '')
-                    else:
-                        snippet = ""
-                    
-                    if url and title:
-                        results.append({
-                            "title": title,
-                            "url": url,
-                            "snippet": snippet
-                        })
-                except Exception as e:
-                    logger.warning(f"Failed to parse result block: {e}")
-                    continue
+            for result in search_results:
+                results.append({
+                    "title": result.get('title', 'No title'),
+                    "url": result.get('href', result.get('link', '')),
+                    "snippet": result.get('body', result.get('snippet', ''))
+                })
             
-            logger.info(f"Found {len(results)} search results")
+            logger.info(f"✅ Found {len(results)} real-time search results")
+            
+            # Log first result for debugging
+            if results:
+                logger.info(f"First result: {results[0]['title'][:50]}...")
+            
             return results
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Search request failed: {e}")
-            return []
         except Exception as e:
-            logger.error(f"Search failed: {e}")
+            logger.error(f"❌ Search failed: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return []
     
     def format_results_for_prompt(self, results: List[Dict[str, str]]) -> str:

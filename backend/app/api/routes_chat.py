@@ -48,16 +48,24 @@ async def chat(request: ChatRequest, redis_client: Redis = Depends(get_redis)):
         history = memory.get_history(request.session_id)
         
         # Auto-detect if web search is needed
-        search_keywords = ['search', 'find', 'look up', 'what is', 'who is', 'current', 'latest', 'news', 'today']
+        search_keywords = [
+            'search', 'find', 'look up', 'lookup', 'google',
+            'what is', 'who is', 'where is', 'when is', 'how is',
+            'current', 'latest', 'recent', 'news', 'today', 'now',
+            'price', 'weather', 'stock', 'trending', 'happening'
+        ]
         needs_search = any(keyword in request.message.lower() for keyword in search_keywords)
         
         # Optional web search
         search_results = None
         if needs_search and not request.use_scrape:
-            logger.info(f"Auto web search triggered for: {request.message}")
-            results = search_service.search(request.message, num_results=3)
+            logger.info(f"🌐 Auto web search triggered for: {request.message}")
+            results = search_service.search(request.message, num_results=5)
             if results:
                 search_results = search_service.format_results_for_prompt(results)
+                logger.info(f"📊 Formatted search results for AI context")
+            else:
+                logger.warning(f"⚠️ No search results found for: {request.message}")
         
         # Optional web scraping
         scraped_text = None

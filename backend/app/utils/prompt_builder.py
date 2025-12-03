@@ -24,19 +24,28 @@ def build_prompt(
     
     # System instruction
     system_instruction = (
-        "You are a helpful AI assistant. Use the previous conversation and any scraped "
-        "page content to understand what the user wants. Be concise but clear, accurate, "
-        "and helpful. If you don't know something, say so."
+        "You are a helpful AI assistant with access to real-time web search results. "
+        "Use the previous conversation and any search results or scraped content to provide "
+        "accurate, up-to-date information. Be concise but clear, accurate, and helpful. "
+        "If you don't know something, say so. When using search results, cite the sources."
     )
     prompt_parts.append(system_instruction)
     prompt_parts.append("\n")
     
-    # Add scraped content if available
+    # Add scraped content or search results if available
     if scraped_text:
-        prompt_parts.append("\n--- Web Page Content ---")
-        prompt_parts.append("\nHere is content scraped from a related web page. Use it if relevant, ignore if not:")
+        if "search results:" in scraped_text.lower():
+            prompt_parts.append("\n--- REAL-TIME SEARCH RESULTS ---")
+            prompt_parts.append("\nThe following are CURRENT, UP-TO-DATE search results from the web.")
+            prompt_parts.append("\nUSE THIS INFORMATION to answer the user's question with the latest data:")
+        else:
+            prompt_parts.append("\n--- Web Page Content ---")
+            prompt_parts.append("\nHere is content scraped from a related web page. Use it if relevant, ignore if not:")
         prompt_parts.append(f"\n{scraped_text}")
-        prompt_parts.append("\n--- End of Web Page Content ---\n")
+        if "search results:" in scraped_text.lower():
+            prompt_parts.append("\n--- END OF SEARCH RESULTS ---\n")
+        else:
+            prompt_parts.append("\n--- End of Web Page Content ---\n")
     
     # Add conversation history
     if history:
