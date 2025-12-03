@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, FormEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // Types
 interface Message {
@@ -24,6 +27,15 @@ interface HistoryMessage {
   content: string;
 }
 
+// Typing Indicator Component
+const TypingIndicator = () => (
+  <div className="typing-indicator">
+    <span></span>
+    <span></span>
+    <span></span>
+  </div>
+);
+
 // Utility to generate/retrieve session ID
 const getSessionId = (): string => {
   let sessionId = localStorage.getItem('ai_assistant_session_id');
@@ -35,7 +47,6 @@ const getSessionId = (): string => {
 };
 
 // API base URL from environment variable
-// Use empty string to make requests relative (through nginx proxy)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const Chat = () => {
@@ -45,11 +56,26 @@ const Chat = () => {
   const [scrapeUrl, setScrapeUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState(getSessionId());
+  const [showSuggestions, setShowSuggestions] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const suggestions = [
+    "What can you help me with?",
+    "Search for the latest AI trends",
+    "Explain quantum computing",
+    "Write a Python function"
+  ];
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Hide suggestions once messages exist
+  useEffect(() => {
+    if (messages.length > 0) {
+      setShowSuggestions(false);
+    }
   }, [messages]);
 
   // Load session history on mount
@@ -75,10 +101,23 @@ const Chat = () => {
     loadHistory();
   }, [sessionId]);
 
-  const sendMessage = async (e: FormEvent) => {
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      // Optional: Add toast notification here
+      console.log('Copied to clipboard!');
+    });
+  };
+
+  const handleSuggestionClick = (suggestion: string) => {
+    setInputMessage(suggestion);
+    setShowSuggestions(false);
+  };
+
+  const sendMessage = async (e: FormEvent, customMessage?: string) => {
     e.preventDefault();
     
-    if (!inputMessage.trim()) return;
+    const messageText = customMessage || inputMessage.trim();
+    if (!messageText) return;
     if (useScrape && !scrapeUrl.trim()) {
       alert('Please provide a URL to scrape');
       return;
@@ -87,20 +126,19 @@ const Chat = () => {
     // Add user message to UI immediately
     const userMessage: Message = {
       role: 'user',
-      content: inputMessage,
+      content: messageText,
       timestamp: new Date(),
     };
     setMessages((prev: Message[]) => [...prev, userMessage]);
     
     // Clear input
-    const messageToSend = inputMessage;
     setInputMessage('');
     setIsLoading(true);
 
     try {
       const requestBody: ChatRequest = {
         session_id: sessionId,
-        message: messageToSend,
+        message: messageText,
         use_scrape: useScrape,
       };
 
@@ -165,6 +203,7 @@ const Chat = () => {
         setMessages([]);
         setInputMessage('');
         setScrapeUrl('');
+        setShowSuggestions(true);
         console.log('Session reset successfully');
       }
     } catch (error) {
@@ -182,47 +221,102 @@ const Chat = () => {
   return (
     <div className="chat-container">
       <header className="chat-header">
-        <h1>AI Assistant</h1>
-        <p className="subtitle">Powered by LLaMA 3.1 via Ollama</p>
+        <div className="header-content">
+          <h1>✨ InnoviTech AI</h1>
+          <p className="subtitle">Powered by LLaMA 3.1 via Ollama</p>
+        </div>
         <button 
           onClick={resetSession} 
           className="reset-button"
-          title="Reset conversation"
+          title="Start new conversation"
         >
-          Reset
+          <span>🔄</span> New Chat
         </button>
       </header>
 
       <div className="messages-container">
-        {messages.length === 0 && (
-          <div className="empty-state">
-            <h2>👋 Hello!</h2>
-            <p>I'm your AI assistant. Ask me anything!</p>
+        {showSuggestions && messages.length === 0 && (
+          <div className="suggestions-container">
+            <h2>👋 Welcome! Try asking:</h2>
+            <div className="suggestions-grid">
+              {suggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  className="suggestion-chip"
+                  onClick={() => handleSuggestionClick(suggestion)}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         
         {messages.map((msg: Message, index: number) => (
           <div key={index} className={`message ${msg.role}`}>
-            <div className="message-header">
-              <span className="message-role">
-                {msg.role === 'user' ? '👤 You' : '🤖 Bot'}
-              </span>
-              <span className="message-time">{formatTime(msg.timestamp)}</span>
+            <div className="message-avatar">
+              {msg.role === 'user' ? '👤' : '🤖'}
             </div>
-            <div className="message-content">{msg.content}</div>
+            <div className="message-bubble">
+              <div className="message-header">
+                <span className="message-role">
+                  {msg.role === 'user' ? 'You' : 'AI Assistant'}
+                </span>
+                <span className="message-time">{formatTime(msg.timestamp)}</span>
+              </div>
+              <div className="message-content">
+                {msg.role === 'assistant' ? (
+                  <ReactMarkdown
+                    components={{
+                      code({ node, inline, className, children, ...props }) {
+                        const match = /language-(\w+)/.exec(className || '');
+                        return !inline && match ? (
+                          <div className="code-block-wrapper">
+                            <div className="code-block-header">
+                              <span>{match[1]}</span>
+                              <button
+                                className="copy-button"
+                                onClick={() => copyToClipboard(String(children))}
+                              >
+                                📋 Copy
+                              </button>
+                            </div>
+                            <SyntaxHighlighter
+                              style={vscDarkPlus}
+                              language={match[1]}
+                              PreTag="div"
+                              {...props}
+                            >
+                              {String(children).replace(/\n$/, '')}
+                            </SyntaxHighlighter>
+                          </div>
+                        ) : (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                ) : (
+                  <p>{msg.content}</p>
+                )}
+              </div>
+            </div>
           </div>
         ))}
         
         {isLoading && (
-          <div className="message assistant loading">
-            <div className="message-header">
-              <span className="message-role">🤖 Bot</span>
-            </div>
-            <div className="message-content">
-              <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
+          <div className="message assistant">
+            <div className="message-avatar">🤖</div>
+            <div className="message-bubble">
+              <div className="message-header">
+                <span className="message-role">AI Assistant</span>
+              </div>
+              <div className="message-content">
+                <TypingIndicator />
               </div>
             </div>
           </div>
@@ -231,7 +325,7 @@ const Chat = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      <form onSubmit={sendMessage} className="input-container">
+      <form onSubmit={(e) => sendMessage(e)} className="input-container">
         <div className="scrape-options">
           <label className="checkbox-label">
             <input
@@ -239,7 +333,7 @@ const Chat = () => {
               checked={useScrape}
               onChange={(e) => setUseScrape(e.target.checked)}
             />
-            <span>Use Web Scraping</span>
+            <span>🌐 Use Web Scraping</span>
           </label>
           
           {useScrape && (
@@ -267,7 +361,7 @@ const Chat = () => {
             disabled={isLoading || !inputMessage.trim()}
             className="send-button"
           >
-            {isLoading ? '⏳' : '➤'}
+            {isLoading ? '⏳' : '🚀'} Send
           </button>
         </div>
       </form>
