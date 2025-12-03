@@ -59,9 +59,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
-      # Use system Ollama on host (Linux: host-gateway). If you want dockerized
-      # Ollama, start with profile "local-ollama" and change this back to http://ollama:11434
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      # Use system Ollama on host via Docker bridge gateway IP
+      # This gets set by deployment script, but defaults to host gateway
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=llama3.1:8b
       - OLLAMA_TIMEOUT=120
       - SESSION_TTL_SECONDS=600

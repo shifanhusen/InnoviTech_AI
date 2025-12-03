@@ -79,6 +79,12 @@ jobs:
             npm run build
             cd ..
             
+            echo "🔧 Finding Docker bridge gateway IP for Ollama access..."
+            # Get the Docker network gateway IP that containers can use to reach host
+            DOCKER_GATEWAY=$(docker network inspect bridge -f '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null || echo "172.17.0.1")
+            echo "Docker gateway IP: $DOCKER_GATEWAY"
+            export OLLAMA_BASE_URL="http://$DOCKER_GATEWAY:11434"
+            
             echo "🔨 Building and starting services..."
             # Build and start core services; frontend container uses dev profile, nginx serves pre-built dist
             docker compose up -d --build --remove-orphans redis backend nginx
