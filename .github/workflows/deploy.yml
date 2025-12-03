@@ -41,6 +41,123 @@ jobs:
             fi
             
             echo "🛑 Stopping existing containers (if any)..."
+            docker compose down --remove-orphans || true
+            
+            echo "🔨 Building Docker images..."
+            docker compose build --no-cache
+            
+            echo "▶️ Starting services..."
+            docker compose up -d
+            
+            echo "⏳ Waiting for services to start..."
+            sleep 30
+            
+            echo "🤖 Checking LLaMA model..."
+            if docker ps --format '{{.Names}}' | grep -q '^ai-assistant-ollama$'; then
+              if ! docker exec ai-assistant-ollama ollama list | grep -q "llama3.1:8b"; then
+                echo "📥 Pulling LLaMA 3.1 8B model (this may take a while)..."
+                docker exec ai-assistant-ollama ollama pull llama3.1:8b || true
+              else
+                echo "✅ LLaMA model already exists"
+              fi
+            else
+              echo "ℹ️ Ollama container not managed here or named differently; skipping model check"
+            fi
+            
+            echo "🏥 Running health checks with retries..."
+            
+            # Backend health check with retries
+            for i in {1..5}; do
+              if curl -fsS http://localhost:5001/api/health >/dev/null; then
+                echo "✅ Backend is healthy"
+                break
+              else
+                echo "❌ Backend health check attempt $i failed. Retrying in 5s..."
+                sleep 5
+              fi
+              if [ $i -eq 5 ]; then
+                echo "❌ Backend failed to become healthy after 5 attempts. See logs:"
+                docker compose logs backend || true
+                exit 1
+              fi
+            done
+            
+            # Nginx health check with retries
+            for i in {1..5}; do
+              if curl -fsS http://localhost/api/health >/dev/null; then
+                echo "✅ Nginx is healthy"
+                break
+              else
+                echo "❌ Nginx health check attempt $i failed. Retrying in 5s..."
+                sleep 5
+              fi
+              if [ $i -eq 5 ]; then
+                echo "❌ Nginx failed to become healthy after 5 attempts. See logs:"
+                docker compose logs nginx || true
+                exit 1
+              fi
+            done
+            
+            echo "🧹 Cleaning up old Docker images..."
+            docker image prune -f || true
+            
+            echo "📊 Currently running containers:"
+            docker compose ps
+            
+            echo "✅ Deployment completed successfully!"
+            echo "🌐 Application is now live!"
+
+      - name: Deployment Status Notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment to production server succeeded!"
+          else
+            echo "❌ Deployment to production server failed!"
+          fi
+name: Deploy to Ubuntu Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Production Server
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Ubuntu Server via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: "72.60.42.121"
+          username: "root"
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            set -e
+            PROJECT_DIR=${{ secrets.PROJECT_PATH || '/home/root/ai-assistant' }}
+            REPO_URL="https://github.com/${{ github.repository }}.git"
+            
+            echo "🚀 Starting deployment..."
+            
+            if [ -d "$PROJECT_DIR" ]; then
+              echo "✅ Project directory exists. Pulling latest code..."
+              cd "$PROJECT_DIR"
+              git fetch origin
+              git reset --hard origin/main
+            else
+              echo "🤔 Project directory does not exist. Cloning repository..."
+              git clone "$REPO_URL" "$PROJECT_DIR"
+              cd "$PROJECT_DIR"
+            fi
+            
+            echo "🛑 Stopping existing containers (if any)..."
             docker compose down --remove-orphans
             
             echo "🔨 Building Docker images..."
