@@ -35,7 +35,8 @@ const getSessionId = (): string => {
 };
 
 // API base URL from environment variable
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
+// Use empty string to make requests relative (through nginx proxy)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const Chat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
