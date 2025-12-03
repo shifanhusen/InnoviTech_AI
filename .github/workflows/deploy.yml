@@ -50,16 +50,22 @@ jobs:
             docker compose down --remove-orphans || true
             
             echo "🔧 Ensuring backend configuration..."
+            # Get the host gateway IP for Docker bridge network
+            HOST_IP=$(ip route | grep default | awk '{print $3}')
+            echo "Host gateway IP: $HOST_IP"
+            
             # Ensure backend listens on correct port and host and correct Ollama base URL
             if [ -f backend/.env ]; then
               sed -i 's#^PORT=.*#PORT=5001#' backend/.env || echo "PORT=5001" >> backend/.env
               sed -i 's#^HOST=.*#HOST=0.0.0.0#' backend/.env || echo "HOST=0.0.0.0" >> backend/.env
-              sed -i 's#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=http://host.docker.internal:11434#' backend/.env || echo "OLLAMA_BASE_URL=http://host.docker.internal:11434" >> backend/.env
+              sed -i 's#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=http://'"$HOST_IP"':11434#' backend/.env || echo "OLLAMA_BASE_URL=http://$HOST_IP:11434" >> backend/.env
             else
               echo "PORT=5001" >> backend/.env
               echo "HOST=0.0.0.0" >> backend/.env
-              echo "OLLAMA_BASE_URL=http://host.docker.internal:11434" >> backend/.env
+              echo "OLLAMA_BASE_URL=http://$HOST_IP:11434" >> backend/.env
             fi
+            
+            echo "Backend will use Ollama at: http://$HOST_IP:11434"
             
             echo "🎨 Building frontend..."
             # Build frontend dist folder (nginx mounts this directory)
