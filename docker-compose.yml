@@ -119,8 +119,8 @@ services:
       backend:
         condition: service_started
     healthcheck:
-      # Check that Nginx is up and proxying /api/health correctly
-      test: ["CMD-SHELL", "wget -qO- http://localhost/api/health || exit 1"]
+      # Check that Nginx itself is up (not backend dependency)
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
