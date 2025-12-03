@@ -268,8 +268,9 @@ const Chat = () => {
                 {msg.role === 'assistant' ? (
                   <ReactMarkdown
                     components={{
-                      code({ node, inline, className, children, ...props }) {
+                      code({ node, className, children, ...props }: any) {
                         const match = /language-(\w+)/.exec(className || '');
+                        const inline = (props as any).inline;
                         return !inline && match ? (
                           <div className="code-block-wrapper">
                             <div className="code-block-header">
@@ -282,16 +283,15 @@ const Chat = () => {
                               </button>
                             </div>
                             <SyntaxHighlighter
-                              style={vscDarkPlus}
+                              style={vscDarkPlus as any}
                               language={match[1]}
                               PreTag="div"
-                              {...props}
                             >
                               {String(children).replace(/\n$/, '')}
                             </SyntaxHighlighter>
                           </div>
                         ) : (
-                          <code className={className} {...props}>
+                          <code className={className}>
                             {children}
                           </code>
                         );
