@@ -61,8 +61,20 @@ jobs:
               echo "OLLAMA_BASE_URL=http://host.docker.internal:11434" >> backend/.env
             fi
             
+            echo "🎨 Building frontend..."
+            # Build frontend dist folder (nginx mounts this directory)
+            cd frontend
+            if ! command -v npm &> /dev/null; then
+              echo "Installing Node.js and npm..."
+              curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+              apt-get install -y nodejs
+            fi
+            npm ci
+            npm run build
+            cd ..
+            
             echo "🔨 Building and starting services..."
-            # Build and start core services; frontend uses dev profile, so skip it in CI
+            # Build and start core services; frontend container uses dev profile, nginx serves pre-built dist
             docker compose up -d --build --remove-orphans redis backend nginx
             
             echo "⏳ Waiting for initial startup..."
