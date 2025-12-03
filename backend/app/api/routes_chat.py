@@ -11,15 +11,18 @@ from app.models.request_models import (
 from app.services.memory_service import MemoryService
 from app.services.ollama_service import OllamaService
 from app.services.scrape_service import ScrapeService
+from app.services.search_service import SearchService
 from app.utils.prompt_builder import build_prompt
 from app.core.redis_client import get_redis
 from app.utils.logger import logger
+import re
 
 router = APIRouter(prefix="/api/llm", tags=["Chat"])
 
 # Initialize services
 ollama_service = OllamaService()
 scrape_service = ScrapeService()
+search_service = SearchService()
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -44,17 +47,30 @@ async def chat(request: ChatRequest, redis_client: Redis = Depends(get_redis)):
         # Get conversation history
         history = memory.get_history(request.session_id)
         
+        # Auto-detect if web search is needed
+        search_keywords = ['search', 'find', 'look up', 'what is', 'who is', 'current', 'latest', 'news', 'today']
+        needs_search = any(keyword in request.message.lower() for keyword in search_keywords)
+        
+        # Optional web search
+        search_results = None
+        if needs_search and not request.use_scrape:
+            logger.info(f"Auto web search triggered for: {request.message}")
+            results = search_service.search(request.message, num_results=3)
+            if results:
+                search_results = search_service.format_results_for_prompt(results)
+        
         # Optional web scraping
         scraped_text = None
         if request.use_scrape and request.scrape_url:
             logger.info(f"Scraping requested for URL: {request.scrape_url}")
             scraped_text = scrape_service.scrape_website(request.scrape_url)
         
-        # Build prompt
+        # Build prompt with search results or scraped content
+        additional_context = search_results or scraped_text
         prompt = build_prompt(
             history=history,
             user_message=request.message,
-            scraped_text=scraped_text
+            scraped_text=additional_context
         )
         
         # Call Ollama
