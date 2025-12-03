@@ -54,22 +54,19 @@ jobs:
             echo "🔨 Building Docker images..."
             docker compose build --no-cache
             
-            echo "▶️ Starting services..."
-            docker compose up -d
+            echo "▶️ Starting services (excluding Ollama to avoid 11434 conflict)..."
+            # Adjust service list to match docker-compose.yml; exclude ollama when system Ollama is already running
+            docker compose up -d redis backend frontend nginx
             
             echo "⏳ Waiting for services to start..."
             sleep 30
             
-            echo "🤖 Checking LLaMA model (if Ollama container is running)..."
-            if docker ps --format '{{.Names}}' | grep -q '^ai-assistant-ollama$'; then
-              if ! docker exec ai-assistant-ollama ollama list | grep -q "llama3.1:8b"; then
-                echo "📥 Pulling LLaMA 3.1 8B model (this may take a while)..."
-                docker exec ai-assistant-ollama ollama pull llama3.1:8b || true
-              else
-                echo "✅ LLaMA model already exists"
-              fi
+            echo "🤖 Skipping Ollama container/model checks (using system Ollama on port 11434)."
+            # Ensure backend points to system Ollama
+            if [ -f backend/.env ]; then
+              sed -i 's#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=http://127.0.0.1:11434#' backend/.env || true
             else
-              echo "ℹ️ Ollama container not found or named differently; skipping model check"
+              echo "OLLAMA_BASE_URL=http://127.0.0.1:11434" >> backend/.env
             fi
             
             echo "🏥 Running backend health check with retries..."
