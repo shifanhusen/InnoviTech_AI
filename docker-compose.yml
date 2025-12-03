@@ -68,7 +68,7 @@ services:
       - MAX_HISTORY_MESSAGES=20
       - SCRAPE_TIMEOUT=10
       - SCRAPE_MAX_CHARS=5000
-      - CORS_ORIGINS=*
+      - CORS_ORIGINS=["*"]
     depends_on:
       redis:
         condition: service_healthy
