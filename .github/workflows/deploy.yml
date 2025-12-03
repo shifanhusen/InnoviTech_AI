@@ -16,13 +16,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Deploy to Ubuntu Server via SSH
-        uses: appleboy/ssh-action@v0.1.10   # same major version as your working project
+        uses: appleboy/ssh-action@v0.1.10
         with:
           host: "72.60.42.121"
           username: "root"
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # If your SSH runs on a custom port, uncomment and set:
-          # port: "YOUR_PORT_HERE"
           script: |
             set -e
 
@@ -51,52 +49,79 @@ jobs:
             echo "🛑 Stopping existing containers (if any)..."
             docker compose down --remove-orphans || true
             
-            echo "🔨 Building Docker images..."
-            docker compose build --no-cache
-            
-            echo "▶️ Starting services (excluding Ollama to avoid 11434 conflict)..."
-            # Adjust service list to match docker-compose.yml; exclude ollama when system Ollama is already running
-            docker compose up -d redis backend frontend nginx
-            
-            echo "⏳ Waiting for services to start..."
-            sleep 30
-            
-            echo "🤖 Skipping Ollama container/model checks (using system Ollama on port 11434)."
-            # Ensure backend points to system Ollama
+            echo "🔧 Ensuring backend configuration..."
+            # Ensure backend listens on correct port and host and correct Ollama base URL
             if [ -f backend/.env ]; then
-              sed -i 's#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=http://127.0.0.1:11434#' backend/.env || true
+              sed -i 's#^PORT=.*#PORT=5001#' backend/.env || echo "PORT=5001" >> backend/.env
+              sed -i 's#^HOST=.*#HOST=0.0.0.0#' backend/.env || echo "HOST=0.0.0.0" >> backend/.env
+              sed -i 's#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=http://host.docker.internal:11434#' backend/.env || echo "OLLAMA_BASE_URL=http://host.docker.internal:11434" >> backend/.env
             else
-              echo "OLLAMA_BASE_URL=http://127.0.0.1:11434" >> backend/.env
+              echo "PORT=5001" >> backend/.env
+              echo "HOST=0.0.0.0" >> backend/.env
+              echo "OLLAMA_BASE_URL=http://host.docker.internal:11434" >> backend/.env
             fi
             
+            echo "🔨 Building and starting services..."
+            # Build and start core services; frontend uses dev profile, so skip it in CI
+            docker compose up -d --build --remove-orphans redis backend nginx
+            
+            echo "⏳ Waiting for initial startup..."
+            sleep 15
+            
+            echo "📊 Container status after startup:"
+            docker compose ps
+            
             echo "🏥 Running backend health check with retries..."
-            for i in {1..5}; do
-              if curl -fsS http://localhost:5001/api/health >/dev/null; then
+            MAX_ATTEMPTS=12
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+              echo "Attempt $i/$MAX_ATTEMPTS: checking http://localhost:5001/api/health"
+              if curl -fsS http://localhost:5001/api/health >/dev/null 2>&1; then
                 echo "✅ Backend is healthy"
                 break
-              else
-                echo "❌ Backend health check attempt $i failed. Retrying in 5s..."
-                sleep 5
               fi
-              if [ $i -eq 5 ]; then
-                echo "❌ Backend failed to become healthy after 5 attempts. See logs:"
-                docker compose logs backend || true
+            
+              echo "❌ Backend health check attempt $i failed. Printing last 200 lines of backend logs:"
+              docker compose logs --no-color --tail=200 backend || true
+            
+              # Backoff: small sleeps early, longer later
+              if [ $i -lt 6 ]; then
+                sleep 5
+              else
+                sleep 10
+              fi
+            
+              if [ $i -eq $MAX_ATTEMPTS ]; then
+                echo "❌ Backend failed to become healthy after $MAX_ATTEMPTS attempts. Full backend logs:"
+                docker compose logs --no-color backend || true
+                echo "Backend container inspect:"
+                docker inspect --format='{{json .State}}' $(docker compose ps -q backend) || true
                 exit 1
               fi
             done
             
             echo "🏥 Running nginx health check with retries..."
-            for i in {1..5}; do
-              if curl -fsS http://localhost/api/health >/dev/null; then
+            MAX_ATTEMPTS=12
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+              echo "Attempt $i/$MAX_ATTEMPTS: checking http://localhost:8080/api/health"
+              if curl -fsS http://localhost:8080/api/health >/dev/null 2>&1; then
                 echo "✅ Nginx is healthy"
                 break
-              else
-                echo "❌ Nginx health check attempt $i failed. Retrying in 5s..."
-                sleep 5
               fi
-              if [ $i -eq 5 ]; then
-                echo "❌ Nginx failed to become healthy after 5 attempts. See logs:"
-                docker compose logs nginx || true
+            
+              echo "❌ Nginx health check attempt $i failed. Printing last 200 lines of nginx logs:"
+              docker compose logs --no-color --tail=200 nginx || true
+            
+              if [ $i -lt 6 ]; then
+                sleep 5
+              else
+                sleep 10
+              fi
+            
+              if [ $i -eq $MAX_ATTEMPTS ]; then
+                echo "❌ Nginx failed to become healthy after $MAX_ATTEMPTS attempts. Full nginx logs:"
+                docker compose logs --no-color nginx || true
+                echo "Nginx container inspect:"
+                docker inspect --format='{{json .State}}' $(docker compose ps -q nginx) || true
                 exit 1
               fi
             done
@@ -108,8 +133,8 @@ jobs:
             docker compose ps
             
             echo "✅ Deployment completed successfully!"
-            echo "🌐 Application is now live!"
-
+            echo "🌐 Application is now live at: http://72.60.42.121:8080"
+      
       - name: Deployment Status Notification
         if: always()
         run: |
